@@ -15,7 +15,14 @@ defmodule ExGAM.V04Test.ConsentDagTest do
 
   setup do
     Runtime.reset(Fixture.default_now())
-    fixture = Fixture.start_domain(namespace: "consent", consent: true)
+
+    fixture =
+      Fixture.start_domain(
+        namespace: "consent",
+        consent: true,
+        name: {:via, Registry, {ExGAM.Domain.Registry, "v0.4:consent:domain"}}
+      )
+
     on_exit(fn -> Fixture.stop_domain(fixture) end)
     payment = Fixture.paid_evidence(fixture)
     assert {:ok, ^payment} = Fixture.observe_payment(fixture, payment)
@@ -506,21 +513,185 @@ defmodule ExGAM.V04Test.ConsentDagTest do
     assert decision.ref not in Map.keys(projection.decisions)
   end
 
+  test "a separately authenticated recipient can answer only the exact delivered presentation",
+       ctx do
+    {show, _outcome} = show!(ctx)
+    f = ctx.fixture
+
+    assert {:ok, recipient} =
+             Sequencer.authenticate(f.server, f.refs.scope, %{
+               principal_ref: f.refs.proposer,
+               session_ref: "recipient:second-session",
+               authentication_ref: "recipient:second-authentication"
+             })
+
+    projection = Sequencer.projection(f.server)
+    scope = f.refs.scope
+
+    assert {:error, {:scope_context_binding_mismatch, ^scope}} =
+             ExGAM.GovernedAct.View.scope_context(projection, recipient)
+
+    approval =
+      Presentation.response_evidence(
+        recipient,
+        ctx.presentation,
+        show,
+        :supports,
+        Runtime.now(),
+        payload: %{"response" => "accepted"}
+      )
+      |> ok!()
+
+    opening = projection.catalog.scopes[scope]
+
+    assert {:ok, ^opening} =
+             ExGAM.GovernedAct.View.observation_context(projection, recipient, approval)
+
+    assert {:error, {:scope_context_binding_mismatch, ^scope}} =
+             ExGAM.GovernedAct.View.observation_context(
+               %{projection | outcomes: %{}},
+               recipient,
+               approval
+             )
+
+    assert {:error, {:scope_context_binding_mismatch, ^scope}} =
+             ExGAM.GovernedAct.View.observation_context(
+               projection,
+               recipient,
+               Fixture.paid_evidence(f)
+             )
+  end
+
+  test "a prepared presentation must belong to the authenticated scope and its time window",
+       ctx do
+    f = ctx.fixture
+    context = Fixture.context(f)
+
+    for {field, value, expected} <- [
+          {:scope_ref, "other", :presentation_scope_context_mismatch},
+          {:prepared_at, Runtime.now() - 1, :presentation_precedes_scope},
+          {:prepared_at, Runtime.now() + 1, :presentation_from_future}
+        ] do
+      attrs =
+        ctx.presentation
+        |> Map.from_struct()
+        |> Map.drop([:ref, :material_digest])
+        |> Map.put(field, value)
+
+      assert {:ok, changed} = Presentation.new(attrs)
+      head = Sequencer.head(f.server)
+      assert {:error, reason} = Sequencer.record_presentation(f.server, context, changed)
+      assert if(is_tuple(reason), do: elem(reason, 0), else: reason) == expected
+      assert head == Sequencer.head(f.server)
+    end
+  end
+
+  test "show admission identifies absent, invalid or premature presentation material", ctx do
+    {:ok, candidate} = Candidate.new(show_attrs(ctx))
+    projection = Sequencer.projection(ctx.fixture.server)
+    context = Fixture.context(ctx.fixture)
+    ref = ctx.presentation.ref
+
+    for {presentations, expected, outcome} <- [
+          {%{}, :presentation_show_material_not_found, :undecidable},
+          {%{ref => :invalid}, {:invalid_presentation_show, :invalid_presentation_record},
+           :refused},
+          {%{ref => %{ctx.presentation | prepared_at: Runtime.now() + 10}},
+           :presentation_show_precedes_preparation, :refused}
+        ] do
+      state = %{projection | presentations: presentations}
+
+      assert {:ok, decision, nil} =
+               AdmissionKernel.evaluate(candidate, context, state, Runtime.now())
+
+      assert decision.outcome == outcome
+
+      category =
+        if outcome == :undecidable,
+          do: :evidence_condition_undecidable,
+          else: :evidence_condition_unsatisfied
+
+      assert {category, expected} in decision.reasons
+    end
+  end
+
+  test "the public presentation API binds the scope, show fields and activity transport", ctx do
+    f = ctx.fixture
+    domain = ExGAM.Domain.handle(f.server, f.refs.domain)
+    {:ok, scope} = ExGAM.Scope.new(domain, Fixture.context(f))
+    presentation = ctx.presentation
+    ref = presentation.ref
+    head = Sequencer.head(f.server)
+    assert {:ok, ^presentation} = ExGAM.prepare_presentation(scope, presentation)
+
+    {:ok, foreign} =
+      presentation
+      |> Map.from_struct()
+      |> Map.drop([:ref, :material_digest])
+      |> Map.put(:scope_ref, "foreign")
+      |> Presentation.new()
+
+    assert {:error, :presentation_scope_mismatch} = ExGAM.prepare_presentation(scope, foreign)
+
+    fields = [
+      :identity_key,
+      :requested_mandate_ref,
+      :accountable_ref,
+      :executor_ref,
+      :executor_contract_ref
+    ]
+
+    attrs = Map.take(ctx.attrs, fields)
+
+    for field <- fields do
+      assert {:error, {:missing_presentation_show_field, ^field}} =
+               ExGAM.show_presentation(scope, ref, Map.delete(attrs, field))
+    end
+
+    origin = %{ref: "show", revision: 0}
+
+    assert {:error, {:presentation_not_found, "missing"}} =
+             ExGAM.show_activity_presentation(scope, "missing", attrs, make_ref(), origin)
+
+    assert {:error, :untrusted_activity_transport} =
+             ExGAM.show_activity_presentation(scope, ref, attrs, make_ref(), origin)
+
+    assert Sequencer.head(f.server) == head
+  end
+
+  test "a colliding projection entry cannot replace a previously prepared presentation", ctx do
+    f = ctx.fixture
+    {:ok, config} = ExGAM.Domain.Configuration.new(f.sequencer_opts)
+    state = Sequencer.State.new(config, Sequencer.projection(f.server))
+    ref = ctx.presentation.ref
+    damaged = put_in(state.projection.presentations[ref].cost, ctx.presentation.cost + 1)
+
+    assert {:error, ^damaged, {:presentation_identity_conflict, ^ref}} =
+             ExGAM.Domain.Command.Presentation.record(
+               damaged,
+               Fixture.context(f),
+               ctx.presentation
+             )
+  end
+
+  defp show_attrs(ctx) do
+    ctx.attrs
+    |> Map.merge(%{
+      identity_key: "consent:show",
+      class: Presentation.show_class(),
+      row: Presentation.show_row(),
+      consequence: Presentation.show_consequence(ctx.presentation),
+      consent: nil,
+      disclosure: ctx.presentation.disclosure,
+      target_refs: ctx.presentation.recipient_refs,
+      meter_requests: %{}
+    })
+  end
+
   defp show!(ctx) do
     fixture = ctx.fixture
 
-    attrs =
-      ctx.attrs
-      |> Map.merge(%{
-        identity_key: "consent:show",
-        class: Presentation.show_class(),
-        row: Presentation.show_row(),
-        consequence: Presentation.show_consequence(ctx.presentation),
-        consent: nil,
-        disclosure: ctx.presentation.disclosure,
-        target_refs: ctx.presentation.recipient_refs,
-        meter_requests: %{}
-      })
+    attrs = show_attrs(ctx)
 
     assert {:ok, %{decision: decision, act: act, grant: grant}} =
              Sequencer.submit(fixture.server, Fixture.context(fixture), attrs)

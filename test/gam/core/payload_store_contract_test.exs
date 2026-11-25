@@ -48,6 +48,37 @@ defmodule ExGAM.Core.PayloadStoreContractTest do
     %{value: value, ref: ref, table: table, config: config, state: state, evidence: evidence}
   end
 
+  test "transaction preflight verifies distinct external payloads before recording the batch",
+       c do
+    alias ExGAM.Domain.Transaction
+    observation = %{"type" => "evidence_recorded", "data" => %{"payload_ref" => c.ref}}
+
+    presentation = %{
+      "type" => "presentation_recorded",
+      "data" => %{"rendered_payload_ref" => c.ref}
+    }
+
+    assert :ok = Transaction.verify_payload_references(c.config, [observation, presentation])
+    assert_received {:verify_payload, _}
+    refute_received {:verify_payload, _}
+
+    assert {:error, {:payload_store_required, ref}} =
+             Transaction.verify_payload_references(nil, [presentation])
+
+    assert ref == c.ref
+
+    assert Store.recovered_refs(c.state, [%{"type" => "act_committed", "identity" => "absent"}]) ==
+             []
+
+    for check <- [
+          &Store.verify_references/3,
+          &Store.verify_usable/3,
+          &Store.verify_new_references/3
+        ] do
+      assert {:error, _} = check.(c.config, c.state, [nil])
+    end
+  end
+
   test "an optional store is unnecessary when history contains only inline payloads" do
     {:ok, inline} = Evidence.new(evidence_attrs(%{payload: %{"text" => "hello"}}))
     state = %{State.new("domain") | evidence: %{inline.ref => inline}}

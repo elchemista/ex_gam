@@ -119,6 +119,134 @@ defmodule ExGAM.CommandDurabilityBoundaryTest do
     assert now == c.act.committed_at
   end
 
+  test "a failed preflight answers every caller waiting for a batch", c do
+    alias ExGAM.Domain.Sequencer
+    token = make_ref()
+    first = make_ref()
+    second = make_ref()
+    pending = :queue.from_list([%{from: {self(), first}}, %{from: {self(), second}}])
+
+    state = %{
+      c.state
+      | clock: BrokenClock,
+        pending: pending,
+        pending_count: 2,
+        batch_size: 1,
+        flush: {token, nil}
+    }
+
+    assert {:noreply, halted} = Sequencer.dispatch_info({:flush, token}, state)
+    assert {:preflight_duty_repair_failed, _} = reason = halted.halted_reason
+    assert_receive {^first, {:error, ^reason}}
+    assert_receive {^second, {:error, {:sequencer_halted, ^reason}}}
+    assert :queue.is_empty(halted.pending)
+    assert halted.pending_count == 0
+    assert Mock.calls(c.mock) == []
+  end
+
+  test "a scheduled reconciliation with a failed clock halts at the last verified revision", c do
+    alias ExGAM.Domain.Sequencer
+    token = make_ref()
+    state = %{c.state | clock: BrokenClock, reconciliation: {token, nil}}
+    assert {:noreply, halted} = Sequencer.dispatch_info({:reconcile, token}, state)
+    assert {:reconciliation_failed, _} = reason = halted.halted_reason
+    assert_receive {:stop_halted, ^reason}
+    assert halted.projection == state.projection
+  end
+
+  test "ingress completions never resume a halted sequencer or turn an error into a context", c do
+    alias ExGAM.Domain.Sequencer
+
+    for {halted_reason, expected} <- [
+          {nil, :session_expired},
+          {:storage_failed, {:sequencer_halted, :storage_failed}}
+        ] do
+      monitor = Process.monitor(self())
+      reply = make_ref()
+      timer = Process.send_after(self(), :late, 60_000)
+      job = %{timer: timer, operation: {:authenticate, c.f.refs.scope}, from: {self(), reply}}
+      state = %{c.state | halted_reason: halted_reason, ingress_jobs: %{monitor => job}}
+
+      assert {:noreply, next} =
+               Sequencer.dispatch_info({monitor, {:error, :session_expired}}, state)
+
+      assert_receive {^reply, {:error, ^expected}}
+      assert next.ingress_jobs == %{}
+      assert next.projection == state.projection
+    end
+  end
+
+  test "conflicting evidence writes retry from the confirmed predecessor", c do
+    :ok = Mock.push(c.mock, [{:append, :before, {:error, :conflict}}])
+    assert {:ok, next, receipt} = EvidenceCommand.record(c.state, c.receipt)
+    assert receipt == c.receipt
+    assert next.projection.revision == c.attempted.revision + 1
+    assert Enum.count(Mock.calls(c.mock), &(&1.operation == :append)) == 2
+  end
+
+  test "an existing evidence ID with different stored content cannot be reused", c do
+    state = c.state
+    state = put_in(state.projection.evidence[c.receipt.ref], c.payment)
+
+    assert {:error, ^state, {:evidence_identity_conflict, ref}} =
+             EvidenceCommand.record(state, c.receipt)
+
+    assert ref == c.receipt.ref
+    assert Mock.calls(c.mock) == []
+  end
+
+  test "outcome retries preserve a single durable observation and reject identity conflicts", c do
+    alias ExGAM.Domain.Command.Observation
+    outcome = Fixture.outcome(c.f, c.act, c.attempt, :ambiguous)
+    assert {:error, _, _} = Observation.record(c.state, %{})
+    :ok = Mock.push(c.mock, [{:append, :before, {:error, :conflict}}])
+    assert {:ok, next, ^outcome} = Observation.record(c.state, outcome)
+    assert {:ok, ^next, ^outcome} = Observation.record(next, outcome)
+    damaged = put_in(next.projection.outcomes[outcome.ref], :invalid)
+
+    assert {:error, ^damaged, {:outcome_identity_conflict, ref}} =
+             Observation.record(damaged, outcome)
+
+    assert ref == outcome.ref
+  end
+
+  test "a missing ledger and a failing identifier source cannot produce a successful recovery",
+       c do
+    :ok = Mock.push(c.mock, [{:load_from, :before, :not_found}])
+    assert {:error, :domain_ledger_disappeared} = Transaction.recover_verified(c.state)
+    assert {:error, _} = Transaction.operational_id(%{c.state | id_source: BrokenClock})
+  end
+
+  test "a domain without a Mind rejects turn input before starting ingress", c do
+    alias ExGAM.Domain.Sequencer
+    context = Fixture.context(c.f)
+    head = Sequencer.head(c.f.server)
+    assert {:error, :mind_not_configured} = Sequencer.begin_turn(c.f.server, context, %{}, [])
+
+    assert {:error, {:unknown_options, :sequencer, [:unsafe]}} =
+             Sequencer.open_scope(c.f.server, context, %{}, unsafe: true)
+
+    assert head == Sequencer.head(c.f.server)
+  end
+
+  test "derived executor evidence requires every authorized parent to be durable", c do
+    alias ExGAM.Evidence
+
+    {:ok, derived} =
+      Evidence.new(%{c.receipt | ref: nil, provenance: :derived, parent_refs: [c.payment.ref]})
+
+    state = c.state
+    missing = %{state | projection: %{state.projection | evidence: %{}}}
+
+    assert {:error, ^missing, {:evidence_not_found, ref}} =
+             Input.record_executor_evidence(missing, c.act.ref, c.attempt.ref, [derived])
+
+    assert ref == c.payment.ref
+
+    assert {:ok, _, [^derived]} =
+             Input.record_executor_evidence(state, c.act.ref, c.attempt.ref, [derived])
+  end
+
   defp append(c, retries, on_conflict \\ fn _, _ -> flunk("unexpected replanning") end) do
     {:ok, payload} = Event.record(:evidence, c.receipt)
 

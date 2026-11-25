@@ -189,6 +189,29 @@ defmodule ExGAM.Core.WorkingSetTest do
              {:projection_not_loaded, {:page, :evidence_subscriptions, [group: paid.proposition]}}
   end
 
+  test "batch idempotency and metadata can be restored without treating other rows as loaded", %{
+    f: f
+  } do
+    alias ExGAM.Domain.Projection.Rows
+    state = :sys.get_state(f.server)
+    projection = Sequencer.projection(f.server)
+    batch_id = hd(Fixture.snapshot(f).entries).batch_id
+    assert {:ok, with_batch} = Projection.WorkingSet.include_batch(state, batch_id)
+    assert MapSet.member?(with_batch.read_index.batches, batch_id)
+    assert {:ok, absent} = Projection.WorkingSet.include_batch(state, "unseen")
+    refute MapSet.member?(absent.read_index.batches, "unseen")
+
+    initial = ExGAM.GovernedAct.State.new(f.refs.domain)
+
+    [{:put, {:domain, :metadata} = key, value}] =
+      Rows.changes(initial, projection) |> Enum.take(1)
+
+    restored = Rows.put(initial, key, value)
+    assert Rows.cursor(restored) == Rows.cursor(projection)
+    assert restored.catalog.genesis == projection.catalog.genesis
+    assert restored.mandates == %{}
+  end
+
   test "a corrupt persisted record fails the read without advancing the Domain", %{
     f: f,
     storage: storage

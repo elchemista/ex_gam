@@ -31,6 +31,33 @@ defmodule ExGAM.CoreTest.LedgerBatchReaderTest do
     %{store: store, snapshot: snapshot, zero: %{revision: 0, head_digest: Entry.genesis_digest()}}
   end
 
+  test "invalid ranges cannot invoke the reducer or return a successful empty traversal", ctx do
+    reducer = fn _, _ -> flunk("invalid range reached reducer") end
+
+    assert {:error, :invalid_ledger_read_range} =
+             Reader.reduce(ctx.store, "", ctx.zero, 0, reducer)
+
+    assert {:error, :invalid_ledger_cursor} = Reader.reduce(ctx.store, "domain", nil, 0, reducer)
+
+    assert {:error, :invalid_ledger_read_range} =
+             Reader.reduce_to(
+               ctx.store,
+               "domain",
+               %{ctx.zero | revision: 1},
+               ctx.zero,
+               0,
+               reducer,
+               []
+             )
+
+    assert {:error, :invalid_ledger_cursor} =
+             Reader.reduce_to(ctx.store, "domain", ctx.zero, %{}, 0, reducer, [])
+
+    assert {:error, :invalid_ledger_head} = Store.head({Scripted, head: :broken}, "domain")
+    assert {:error, :invalid_ledger_cursor} = Store.read_batch(ctx.store, "domain", 0)
+    assert {:error, :invalid_ledger_cursor} = Store.load_from(ctx.store, "domain", -1, [])
+  end
+
   test "indexed batches reproduce exactly the independent full read", ctx do
     assert {:ok, actual} =
              Reader.reduce(ctx.store, "domain", ctx.zero, [], fn batch, acc ->

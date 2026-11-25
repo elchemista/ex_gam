@@ -269,7 +269,8 @@ defmodule ExGAM.V04Test.Fixture do
           :ingress,
           :ingress_max_concurrency,
           :ingress_timeout,
-          :max_pending_submissions
+          :max_pending_submissions,
+          :activity_fence
         ])
       )
 

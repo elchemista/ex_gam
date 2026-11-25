@@ -352,6 +352,54 @@ defmodule ExGAM.Core.DutyMeterMaterializationTest do
              DutyMeter.resolve(unsupported_state, event.data)
   end
 
+  test "a meter resolution envelope binds the operation, duty and nonnegative amounts", c do
+    {_disposition, act} = disposition(c, :settle)
+
+    assert {:ok, _} =
+             Event.meter_duty_resolved(c.cause, act, c.duty, :settle, c.cause.reservations)
+
+    assert {:error, :duty_meter_resolution_binding_mismatch} =
+             Event.meter_duty_resolved(c.cause, act, c.duty, :release, c.cause.reservations)
+
+    assert {:error, :invalid_duty_meter_resolution_amounts} =
+             Event.meter_duty_resolved(c.cause, act, c.duty, :settle, %{"balance" => -1})
+
+    assert {:error, :invalid_duty_meter_resolution_event} =
+             Event.meter_duty_resolved(c.cause, act, c.duty, :reverse, %{})
+
+    assert Duty.content_ref(c.duty) == c.duty.ref
+    refute Duty.application_class?(:ambiguous_outcome)
+    refute Duty.application_class?("unqualified")
+  end
+
+  test "scoped duties can be found by an evidence binding even without a local Act", c do
+    alias ExGAM.Domain.Projection
+    alias ExGAM.Scope.View
+    state = c.state
+    scope = c.f.refs.scope
+    assert {:ok, duty} = Projection.duty(state, {:cause_key, c.duty.cause_key})
+    assert {:ok, ^duty} = Projection.duty(state, {:ref, duty.ref})
+    scoped = %{duty | act_ref: nil, evidence_refs: ["absent", c.payment.ref]}
+
+    hidden = %{
+      duty
+      | ref: "hidden",
+        cause_key: {:application, :foreign},
+        act_ref: nil,
+        evidence_refs: ["absent"]
+    }
+
+    state = %{state | duties: %{scoped.cause_key => scoped, hidden.cause_key => hidden}}
+    assert {:ok, [^scoped]} = View.records(state, scope, :duties)
+
+    assert {:ok, []} =
+             View.records(
+               put_in(state.evidence[c.payment.ref].bindings["scope_ref"], "foreign"),
+               scope,
+               :duties
+             )
+  end
+
   defp disposition(c, operation, supporting_refs \\ ["evidence:review"]) do
     {:ok, disposition} =
       Disposition.for_duty(c.duty, :accept_loss, supporting_refs, operation)

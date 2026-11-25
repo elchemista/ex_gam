@@ -9,7 +9,7 @@
 [![Tested Elixir versions](https://img.shields.io/badge/Elixir-1.19%20%7C%201.20-6e4a7e)](https://github.com/elchemista/ex_gam/blob/main/.github/workflows/ci.yml)
 [![Tested Erlang/OTP versions](https://img.shields.io/badge/Erlang%2FOTP-28%20%7C%2029-a90533)](https://github.com/elchemista/ex_gam/blob/main/.github/workflows/ci.yml)
 [![Static checks with Credo and Dialyzer](https://img.shields.io/badge/static%20checks-Credo%20%2B%20Dialyzer-40556b)](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml)
-[![Minimum combined test coverage](https://img.shields.io/badge/coverage%20minimum-93%25-33664b)](https://github.com/elchemista/ex_gam/blob/main/mix.exs)
+[![Minimum combined test coverage](https://img.shields.io/badge/coverage%20minimum-96%25-33664b)](https://github.com/elchemista/ex_gam/blob/main/mix.exs)
 
 ExGAM is an Elixir/OTP library for the Governed Act Model. Give a **Domain** a policy and a ledger. Authenticate a caller, open a **Scope**, and propose a concrete consequence. The kernel checks the Mandate and Evidence and commits the Act before releasing a capability to the executor. The resulting decision, attempt, outcome and outstanding Duties can be recovered from the ledger.
 

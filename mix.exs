@@ -11,7 +11,7 @@ defmodule ExGAM.MixProject do
       version: @version,
       elixir: "~> 1.19",
       name: "ExGAM",
-      test_coverage: [summary: [threshold: 93]],
+      test_coverage: [summary: [threshold: 96]],
       test_ignore_filters: [
         &String.contains?(&1, "/support/"),
         &String.ends_with?(&1, "/helper.exs")

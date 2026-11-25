@@ -518,6 +518,33 @@ defmodule ExGAM.V04Test.LedgerMnesiaTest do
     assert {:error, :invalid_ledger_mnesia_options} = Mnesia.ensure_tables(%{})
   end
 
+  test "table initialization is idempotent and checks existing replicas", %{store: {Mnesia, opts}} do
+    assert :ok = Mnesia.ensure_tables(opts)
+
+    assert {:error, {:incompatible_ledger_mnesia_table, @heads}} =
+             Mnesia.ensure_tables(Keyword.put(opts, :storage, :disc_only_copies))
+  end
+
+  test "recovery rejects a malformed batch identifier even with a valid entry chain", %{
+    store: store
+  } do
+    domain = "batch-id"
+    assert {:ok, 1} = append(store, domain, "original", [%{"value" => 1}], 0)
+    [row] = :mnesia.dirty_read(@batches, {domain, "original"})
+
+    for {id, error} <- [
+          {42, :invalid_ledger_mnesia_batch_row},
+          {"", :invalid_ledger_mnesia_batch_id}
+        ] do
+      key = {domain, id}
+      :ok = :mnesia.dirty_write(@batches, put_elem(row, 1, key))
+      assert {:error, ^error} = Ledger.load(store, domain)
+      :ok = :mnesia.dirty_delete(@batches, key)
+    end
+
+    assert {:ok, %{revision: 1}} = Ledger.load(store, domain)
+  end
+
   defp corrupt_first_revision(store) do
     payloads = [%{"event" => "first"}, %{"event" => "second"}]
     assert {:ok, 2} = append(store, "corrupt-range", "batch", payloads, 0)

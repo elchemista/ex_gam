@@ -218,6 +218,31 @@ defmodule ExGAM.Core.BatchCausalityBoundaryTest do
     refute Events.manual_at?(events, 1, "dispatch_ready", hd(events).identity, %{})
   end
 
+  test "an Act, its admitting Decision and the authorizing governance Act must share their atomic batch",
+       c do
+    alias ExGAM.GovernedAct.Batch
+    assert {:ok, act} = Event.record(:act, c.act)
+    assert {:ok, decision} = Event.record(:decision, c.decision)
+    assert {:ok, root} = Event.record(:mandate, c.f.mandate)
+    state = c.pending
+    refused = put_in(state.decisions[c.decision.ref].outcome, :refused)
+
+    assert {:error, {:non_admitted_decision_has_batch_act, ref}} =
+             Batch.validate(c.before, refused, decode([decision, act], Runtime.now()))
+
+    assert ref == c.decision.ref
+
+    assert {:error, {:act_outside_admission_batch, ref}} =
+             Batch.validate(c.before, state, decode([act], Runtime.now()))
+
+    assert ref == c.act.ref
+
+    assert {:error, {:mandate_outside_authorizing_batch, ref}} =
+             Batch.validate(c.before, state, decode([root], Runtime.now()))
+
+    assert ref == c.f.mandate.ref
+  end
+
   defp decode(payloads, time) do
     payloads
     |> Enum.with_index()
