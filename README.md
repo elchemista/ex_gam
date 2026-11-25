@@ -1,5 +1,7 @@
 # ExGAM
 
+[![CI](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml/badge.svg)](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml)
+
 ExGAM is an Elixir/OTP library for the Governed Act Model. Give a **Domain** a policy and a ledger. Authenticate a caller, open a **Scope**, and propose a concrete consequence. The kernel checks the Mandate and Evidence and commits the Act before releasing a capability to the executor. The resulting decision, attempt, outcome and outstanding Duties can be recovered from the ledger.
 
 The package was extracted from the GAM implementation in Spectre. Its Mix application is `:ex_gam` and its public entry point is `ExGAM`. An application can use it directly with its own authentication, executors and storage. The formal model and Lean proofs live in the [GAM repository](https://github.com/elchemista/gam). A refinement proof connecting this OTP implementation to the Lean profile remains open.
@@ -19,6 +21,12 @@ Run `mix docs` to generate the browsable API reference in `doc/index.html`.
 The example grants a single service permission to append a note to one outbox. Its ingress authenticates a local session token. Its executor writes the note and returns receipt evidence bound to the actual Act and Attempt. The example checks the outbox contents and all three stages of the result. It uses an ephemeral ETS ledger and a development credential broker. [Runnable host implementation](examples/outbox.ex) · [ETS wiring](examples/quickstart.exs)
 
 ## Embed in a Mix application
+
+To use the Hex release, add the following dependency to the host's `mix.exs` and run `mix deps.get`.
+
+```elixir
+{:ex_gam, "~> 0.1.0"}
+```
 
 For sibling checkouts, add `{:ex_gam, path: "../ex_gam"}` to the host's dependencies. A host in another directory can use the corresponding relative path. Mix starts the ExGAM OTP application, which supervises the domain registry, domain supervisor, local receipt claims and notifications. The host supervises the chosen store and any external clients.
 
@@ -64,7 +72,7 @@ Start each domain once. Subsequent operations reuse its handle or resolve its re
 | Ledger persistence | Implement `ExGAM.Ledger.Store`. ETS, Disk, Mnesia and PostgreSQL adapters ship with the library. |
 | Payload and projection storage | `ExGAM.Payload.Store` manages external content and retention. `ExGAM.Domain.Projection.Store` holds derived state and recovery checkpoints. The ledger remains authoritative. |
 
-Host-authored code constructs records through their public constructors and sends operations through the facade. The sequencer, projection internals and raw ledger writer are implementation boundaries. [Facade and function contracts](lib/ex_gam.ex) · [Storage guide](docs/storage.md) · [Connecting Spectre](docs/spectre.md)
+Host-authored code constructs records through their public constructors and sends operations through the `ExGAM` facade. The sequencer, projection internals and raw ledger writer are implementation boundaries. [Storage guide](docs/storage.md) · [Connecting Spectre](docs/spectre.md)
 
 ## Source and license
 

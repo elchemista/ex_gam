@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.19.x"
+            otp: "28.x"
+            coverage: false
+          - elixir: "1.20.x"
+            otp: "29.x"
+            coverage: true
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build/test
+          key: ${{ runner.os }}-quality-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get --check-locked
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix credo
+      - name: Test both projection modes
+        if: ${{ !matrix.coverage }}
+        run: |
+          mix test --warnings-as-errors
+          SPECTRE_TEST_PROJECTION=1 mix test --warnings-as-errors
+      - name: Test both projection modes and check combined coverage
+        if: matrix.coverage
+        run: |
+          mix test --warnings-as-errors --cover --export-coverage ram
+          SPECTRE_TEST_PROJECTION=1 mix test --warnings-as-errors --cover --export-coverage projection
+          mix test.coverage
+
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: "1.19.x"
+          otp-version: "28.x"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build/dev
+            ~/.mix/dialyxir_*.plt*
+          key: ${{ runner.os }}-dialyzer-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+      - run: mix deps.get --check-locked
+      - run: mix dialyzer
+
+  package:
+    name: Hex package and docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.x"
+          otp-version: "28.x"
+      - run: mix deps.get --check-locked
+      - run: mix hex.audit
+      - run: mix docs --warnings-as-errors
+      - name: Run the packaged quickstart in production mode
+        run: |
+          mix hex.build --unpack --output "$RUNNER_TEMP/ex_gam"
+          cd "$RUNNER_TEMP/ex_gam"
+          MIX_ENV=prod mix deps.get --only prod
+          MIX_ENV=prod mix compile --warnings-as-errors
+          MIX_ENV=prod mix run examples/quickstart.exs

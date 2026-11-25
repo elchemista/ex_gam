@@ -1,23 +1,33 @@
 defmodule ExGAM.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @homepage_url "https://spectre.guide/en/governed-act-model"
   @source_url "https://github.com/elchemista/ex_gam"
 
   def project do
     [
       app: :ex_gam,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.19",
       name: "ExGAM",
+      test_coverage: [summary: [threshold: 93]],
       test_ignore_filters: [
         &String.contains?(&1, "/support/"),
         &String.ends_with?(&1, "/helper.exs")
       ],
-      description: "Governed Act Model kernel and supervised domains for Elixir/OTP",
+      description:
+        "Elixir/OTP implementation of the Governed Act Model with supervised domains and pluggable ledger stores.",
+      homepage_url: @homepage_url,
       source_url: @source_url,
+      # OTP 28 reports opaque type mismatches for MapSet values in struct defaults.
+      # Use the same opacity setting as the upstream Spectre kernel.
+      dialyzer: [plt_ignore_apps: [:ex_gam], flags: [:no_opaque]],
       docs: [
-        main: "ExGAM",
-        source_ref: "main",
+        main: "readme",
+        source_ref: @version,
+        assets: %{"examples" => "examples"},
+        extras: ["README.md", "docs/storage.md", "docs/spectre.md", "CHANGELOG.md", "LICENSE"],
         groups_for_modules: [
           "Host API": [ExGAM, ExGAM.Domain, ExGAM.Scope, ExGAM.Proposal.Result, ExGAM.Audit],
           "Host behaviours": [
@@ -49,13 +59,23 @@ defmodule ExGAM.MixProject do
         ]
       ],
       package: [
-        files: ~w(lib examples docs mix.exs README.md LICENSE .formatter.exs),
+        name: "ex_gam",
+        maintainers: ["elchemista"],
+        files: ~w(lib examples docs mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
         licenses: ["Apache-2.0"],
-        links: %{"Source" => @source_url}
+        links: %{
+          "Manifesto" => @homepage_url,
+          "Formal model" => "https://github.com/elchemista/gam",
+          "GitHub" => @source_url,
+          "Documentation" => "https://hexdocs.pm/ex_gam",
+          "Changelog" => "https://hexdocs.pm/ex_gam/changelog.html"
+        }
       ],
       deps: [
         {:uuid_v7, "~> 0.6.0"},
         {:ex_doc, "~> 0.40.3", only: :dev, runtime: false},
+        {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+        {:dialyxir, "~> 1.4", only: :dev, runtime: false},
         {:stream_data, "~> 1.4", only: :test}
       ]
     ]

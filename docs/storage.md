@@ -29,7 +29,7 @@ store = {ExGAM.Ledger.Store.Postgres, repo: MyApp.Repo, schema: "public", table_
 ExGAM.start_domain(domain_ref, store, host_options)
 ```
 
-The adapter uses a per-domain advisory lock, a revision check and a transaction for the batch and its head. Writes request synchronous commit. PostgreSQL must provide the durability and failover guarantees advertised by the host. A custom schema must already exist. For an existing installation use its original schema and table names. The inherited default prefix is `spectre_ledger`. [DDL and implementation](../lib/ex_gam/ledger/store/postgres.ex)
+The adapter uses a per-domain advisory lock, a revision check and a transaction for the batch and its head. Writes request synchronous commit. PostgreSQL must provide the durability and failover guarantees advertised by the host. A custom schema must already exist. For an existing installation use its original schema and table names. The default table prefix is `spectre_ledger`. See `ExGAM.Ledger.Store.Postgres.migration_sql/1` for the generated DDL.
 
 ## Implement a different database
 
@@ -46,4 +46,4 @@ Declare `@behaviour ExGAM.Ledger.Store` and implement these callbacks.
 
 Use the canonical entry and identity routines in `ExGAM.Ledger.Entry`. A successful append acknowledges the stated durability boundary. If commit may have happened but its acknowledgement was lost, return `{:error, :ambiguous}` so the domain can resolve it by batch ID. Serialize competing writers in the backend across the whole deployment. The application should hold one authoritative history per domain.
 
-The development suite covers duplicate identities, conflicting revisions, read-after-restart and lost acknowledgement. [Behaviour and types](../lib/ex_gam/ledger/store.ex) · [ETS reference adapter](../lib/ex_gam/ledger/store/ets.ex) · [PostgreSQL tests](../test/gam/core/postgres_adapter_test.exs)
+The development suite covers duplicate identities, conflicting revisions, read-after-restart and lost acknowledgement. See `ExGAM.Ledger.Store` for the callbacks and `ExGAM.Ledger.Store.ETS` for a reference implementation. [PostgreSQL contract tests](https://github.com/elchemista/ex_gam/blob/main/test/gam/core/postgres_adapter_test.exs)
