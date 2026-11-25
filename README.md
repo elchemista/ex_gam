@@ -1,10 +1,24 @@
 # ExGAM
 
-[![CI](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml/badge.svg)](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml)
+[![CI on main](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml?query=branch%3Amain)
+[![Hex.pm version](https://img.shields.io/hexpm/v/ex_gam?label=Hex.pm)](https://hex.pm/packages/ex_gam)
+[![Hex.pm downloads](https://img.shields.io/hexpm/dt/ex_gam?label=downloads)](https://hex.pm/packages/ex_gam)
+[![HexDocs API reference](https://img.shields.io/badge/HexDocs-API-4e2a8e)](https://hexdocs.pm/ex_gam/)
+[![Apache 2.0 license](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
+[![Tested Elixir versions](https://img.shields.io/badge/Elixir-1.19%20%7C%201.20-6e4a7e)](https://github.com/elchemista/ex_gam/blob/main/.github/workflows/ci.yml)
+[![Tested Erlang/OTP versions](https://img.shields.io/badge/Erlang%2FOTP-28%20%7C%2029-a90533)](https://github.com/elchemista/ex_gam/blob/main/.github/workflows/ci.yml)
+[![Static checks with Credo and Dialyzer](https://img.shields.io/badge/static%20checks-Credo%20%2B%20Dialyzer-40556b)](https://github.com/elchemista/ex_gam/actions/workflows/ci.yml)
+[![Minimum combined test coverage](https://img.shields.io/badge/coverage%20minimum-93%25-33664b)](https://github.com/elchemista/ex_gam/blob/main/mix.exs)
 
 ExGAM is an Elixir/OTP library for the Governed Act Model. Give a **Domain** a policy and a ledger. Authenticate a caller, open a **Scope**, and propose a concrete consequence. The kernel checks the Mandate and Evidence and commits the Act before releasing a capability to the executor. The resulting decision, attempt, outcome and outstanding Duties can be recovered from the ledger.
 
-The package was extracted from the GAM implementation in Spectre. Its Mix application is `:ex_gam` and its public entry point is `ExGAM`. An application can use it directly with its own authentication, executors and storage. The formal model and Lean proofs live in the [GAM repository](https://github.com/elchemista/gam). A refinement proof connecting this OTP implementation to the Lean profile remains open.
+The package was extracted from the GAM implementation in Spectre. Its Mix application is `:ex_gam` and its public entry point is `ExGAM`. An application can use it directly with its own authentication, executors and storage.
+
+The GAM manifesto introduces Mandate, Evidence, Act and Duty. The GAM repository contains the formal specification and the Lean 4 proofs for the reference kernel. A refinement proof connecting this OTP implementation to the Lean profile remains open. [GAM repository](https://github.com/elchemista/gam) · [GAM manifesto on Spectre Guide](https://spectre.guide/en/governed-act-model)
+
+[![Formal GAM model: four laws proved in Lean 4](https://raw.githubusercontent.com/elchemista/gam/main/docs/badges/lean-laws.svg)](https://github.com/elchemista/gam/blob/main/lean/GAM/Theorems/Consequences.lean)
+[![Formal GAM kernel: step and replay verified](https://raw.githubusercontent.com/elchemista/gam/main/docs/badges/kernel.svg)](https://github.com/elchemista/gam/blob/main/lean/GAM/Kernel.lean)
 
 ## Try a governed operation
 
