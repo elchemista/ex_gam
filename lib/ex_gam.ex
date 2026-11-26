@@ -14,7 +14,16 @@ defmodule ExGAM do
   same kernel. This module exposes no direct ledger append, raw Grant, arbitrary
   observed-Evidence insertion or post-Genesis root-authority mutation.
 
-  ## Minimal flow
+  ## Using the API in an application
+
+  Start a Domain once for operations that share policy and ledger history.
+  In the [outbox walkthrough](readme.html#try-a-governed-operation), a service
+  proposes a note for one destination. Its Mandate specifies which outbox it
+  can write to. Admission records an Act for that exact note, and the host's
+  executor writes it. The walkthrough also shows a refusal and a lost receipt.
+
+  The same calls in a payments application take the policy records, adapters
+  and Candidate defined by that host.
 
       {:ok, domain} =
         ExGAM.start_domain("domain:payments", store,
